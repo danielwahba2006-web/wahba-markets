@@ -1,9 +1,7 @@
 name: Scoreboard Refresh
 
+# MANUAL ONLY — uses no AI and costs nothing, but runs only when you trigger it.
 on:
-  schedule:
-    # 21:15 UTC — after the US close year-round, weekdays only. No API key needed.
-    - cron: "15 21 * * 1-5"
   workflow_dispatch: {}
 
 permissions:

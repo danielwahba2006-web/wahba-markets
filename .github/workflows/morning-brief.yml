@@ -1,9 +1,8 @@
 name: Morning Brief
 
+# MANUAL ONLY — no schedule, so this can never spend API credits on its own.
+# Run it yourself from the Actions tab when (and only when) you want a brief.
 on:
-  schedule:
-    # 12:30 UTC = 8:30 AM ET during daylight saving (7:30 AM ET in winter) — weekdays only
-    - cron: "30 12 * * 1-5"
   workflow_dispatch: {}
 
 permissions:

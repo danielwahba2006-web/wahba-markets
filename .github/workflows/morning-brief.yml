@@ -16,6 +16,10 @@ concurrency:
 jobs:
   brief:
     runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      NETLIFY_SITE_ID: 0eff93b3-13d9-497b-a7cb-c94977b7f64c
     steps:
       - uses: actions/checkout@v4
 
@@ -27,14 +31,12 @@ jobs:
         run: npm ci
 
       - name: Require API key secret
-        if: ${{ secrets.ANTHROPIC_API_KEY == '' }}
+        if: ${{ env.ANTHROPIC_API_KEY == '' }}
         run: |
           echo "::error::ANTHROPIC_API_KEY secret is not set. Add it in Settings → Secrets and variables → Actions."
           exit 1
 
       - name: Generate today's Morning Brief (full agent cycles)
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: node scripts/run-brief.js
 
       - name: Commit updated ledger + public data
@@ -47,8 +49,5 @@ jobs:
           git push
 
       - name: Deploy to Netlify
-        if: ${{ secrets.NETLIFY_AUTH_TOKEN != '' }}
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: 0eff93b3-13d9-497b-a7cb-c94977b7f64c
+        if: ${{ env.NETLIFY_AUTH_TOKEN != '' }}
         run: npx --yes netlify-cli deploy --prod --site "$NETLIFY_SITE_ID"

@@ -33,8 +33,8 @@ See [DEPLOY.md](DEPLOY.md) — the project ships with `netlify.toml` and a serve
 
 The desk publishes a daily **Morning Brief** ([brief.html](public/brief.html)) — full agent cycles on a watchlist of 3–5 tickers — and every call goes into a permanent, never-edited ledger. The **Accuracy Scoreboard** ([scoreboard.html](public/scoreboard.html)) re-prices every past call against live market data: win rate, average return, and alpha vs SPY over the same period. Losses stay on the board — that's the point. An RSS feed (`feed.xml`) makes it a subscribable newsletter.
 
-- **Automatic:** with the local server running and a key configured, the brief publishes weekdays at 08:30 (configurable in `data/config.json`: `watchlist`, `briefTime`, `autoBrief`, `autoDeploy`) and auto-deploys the updated public site to Netlify.
-- **Manual:** `npm run brief -- NVDA AAPL MSFT` generates a brief; `npm run scoreboard` re-prices all calls (no AI/key needed); add `--deploy` to either to push to Netlify.
+- **Fully automatic (cloud):** two GitHub Actions run with no computer on — `morning-brief.yml` (weekdays 12:30 UTC ≈ 8:30 AM ET) runs the full agent cycles, commits the ledger, and deploys; `scoreboard.yml` (weekdays 21:15 UTC, after the close) re-prices every call for free. Requires two repo secrets: `ANTHROPIC_API_KEY` and `NETLIFY_AUTH_TOKEN` (Netlify → User settings → Applications → Personal access tokens). Edit the watchlist in `data/config.json`.
+- **Manual / local:** `npm run brief -- NVDA AAPL MSFT` generates a brief; `npm run scoreboard` re-prices all calls (no AI/key needed); add `--deploy` to either to push to Netlify. A local scheduler also exists (`autoBrief` in `data/config.json`) but is off by default now that the cloud owns publishing.
 - **Scoring methodology (public):** BUY correct if up since the call, SELL/AVOID if down, HOLD if within ±5%; alpha = call return − SPY return. Cost note: each brief = one full agent cycle per ticker.
 
 ## Data sources

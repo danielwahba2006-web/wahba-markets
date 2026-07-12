@@ -1,5 +1,5 @@
 {
-  "updatedAt": 1783875431786,
+  "updatedAt": 1783877139870,
   "methodology": "Every call the desk publishes is recorded at its live price and never edited. BUY is correct if the price is up since the call; SELL/AVOID if down; HOLD if the move stayed within ±5%. Alpha = call return minus SPY return over the same period. Losses stay on the board.",
   "totals": {
     "calls": 0,

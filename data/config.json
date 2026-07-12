@@ -1,0 +1,8 @@
+{
+  "watchlist": ["NVDA", "AAPL", "MSFT"],
+  "briefTime": "08:30",
+  "autoBrief": false,
+  "autoDeploy": false,
+  "netlifySiteId": "0eff93b3-13d9-497b-a7cb-c94977b7f64c",
+  "_note": "autoBrief/autoDeploy are OFF locally because GitHub Actions now publishes the brief (weekdays 12:30 UTC) and the scoreboard (weekdays 21:15 UTC). Edit the watchlist here — the cloud job reads this file."
+}

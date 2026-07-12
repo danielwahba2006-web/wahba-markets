@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Accuracy Scoreboard — Wahba Markets</title>
+<link rel="stylesheet" href="style.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🏆</text></svg>" />
+<style>
+  .pub-wrap { max-width: 1060px; margin: 0 auto; padding: 20px 16px 60px; width: 100%; }
+  .pub-nav { display: flex; gap: 14px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .pub-nav a { color: var(--dim); text-decoration: none; font-size: 12px; letter-spacing: 1px; }
+  .pub-nav a:hover, .pub-nav a.active { color: var(--green); }
+  .pub-nav .spacer { flex: 1; }
+  .sb-title { font-size: 26px; font-weight: 800; letter-spacing: 2px; color: var(--text); margin: 26px 0 4px; }
+  .method { color: var(--dim); font-size: 12px; line-height: 1.6; max-width: 760px; margin-bottom: 22px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 26px; }
+  .tile { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; }
+  .tile .label { color: var(--faint); font-size: 10px; letter-spacing: 2px; margin-bottom: 8px; }
+  .tile .num { font-size: 30px; font-weight: 800; color: var(--text); }
+  .tile .sub { color: var(--dim); font-size: 11px; margin-top: 4px; }
+  .bysig { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 26px; }
+  .bysig .chip { border: 1px solid var(--border-hi); border-radius: 6px; padding: 8px 14px; background: var(--panel); font-size: 12px; color: var(--dim); }
+  .bysig .chip b { color: var(--text); }
+  .tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+  table.calls { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 860px; }
+  .calls th { text-align: left; color: var(--faint); font-weight: 400; font-size: 10px; letter-spacing: 1px; padding: 10px 12px; border-bottom: 1px solid var(--border-hi); background: var(--panel); position: sticky; top: 0; }
+  .calls td { padding: 9px 12px; border-bottom: 1px solid #0d150f; color: var(--text); }
+  .calls tr:hover td { background: #0e1a12; }
+  .calls .num-col { text-align: right; }
+  .sigtag { font-weight: 700; letter-spacing: 1px; padding: 1px 8px; border-radius: 4px; border: 1px solid; font-size: 10.5px; }
+  .sigtag.BUY { color: var(--green); border-color: var(--green-dim); }
+  .sigtag.SELL { color: var(--red); border-color: #b91c1c; }
+  .sigtag.HOLD, .sigtag.AVOID { color: var(--amber); border-color: #a16207; }
+  .hit-win { color: var(--green); font-weight: 700; }
+  .hit-loss { color: var(--red); font-weight: 700; }
+  .hit-open { color: var(--faint); }
+  .updated { color: var(--faint); font-size: 10px; margin-top: 10px; }
+  .empty-state { text-align: center; color: var(--dim); padding: 80px 20px; font-size: 13px; line-height: 2; }
+  .empty-state .big { font-size: 20px; color: var(--text); }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">▲</span>
+    <span class="brand-name">WAHBA&nbsp;MARKETS</span>
+    <span class="brand-sub">PUBLIC ACCURACY RECORD</span>
+  </div>
+</header>
+<nav class="pub-nav">
+  <a href="index.html">← THE DESK</a>
+  <a href="brief.html">📰 MORNING BRIEF</a>
+  <a href="scoreboard.html" class="active">🏆 ACCURACY SCOREBOARD</a>
+  <span class="spacer"></span>
+  <a href="feed.xml" title="Subscribe in any RSS reader">RSS ⚡</a>
+</nav>
+
+<div class="pub-wrap" id="wrap">
+  <div class="empty-state" id="loading">loading…</div>
+</div>
+
+<footer class="footer">
+  Every call the AI desk publishes is recorded at its live price, never edited, and re-priced against real market data — losses stay on the board. Educational research — not financial advice.
+</footer>
+
+<script>
+const fmt=(v,d=2)=>v==null||isNaN(v)?"—":Number(v).toFixed(d);
+const pct=v=>v==null?"—":(v>=0?"+":"")+Number(v).toFixed(2)+"%";
+const cls=v=>v==null?"":v>=0?"up":"down";
+const esc=s=>String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+function emptyState(){
+  document.getElementById("wrap").innerHTML=`<div class="empty-state">
+    <div class="big">The scoreboard opens with the first Morning Brief.</div>
+    From day one, every call is recorded at its live price and scored publicly —<br/>wins and losses alike.
+  </div>`;
+}
+
+function tile(label,num,sub,colorCls){
+  return `<div class="tile"><div class="label">${label}</div><div class="num ${colorCls||""}">${num}</div><div class="sub">${sub||""}</div></div>`;
+}
+
+async function main(){
+  let sb;
+  try{
+    const r=await fetch("data/scoreboard.json",{cache:"no-cache"});
+    if(!r.ok)throw 0;
+    sb=await r.json();
+  }catch{ return emptyState(); }
+  if(!sb.calls||!sb.calls.length) return emptyState();
+
+  const t=sb.totals;
+  const tiles=[
+    tile("CALLS TRACKED", t.calls, `${t.evaluated} scored to date`),
+    tile("WIN RATE", t.winRate==null?"—":fmt(t.winRate,1)+"%", `${t.wins} wins / ${t.evaluated-t.wins} losses`, t.winRate>=50?"up":"down"),
+    tile("AVG RETURN / CALL", pct(t.avgReturn), "since each call was published", cls(t.avgReturn)),
+    tile("AVG ALPHA VS SPY", pct(t.avgAlpha), "call return minus SPY, same period", cls(t.avgAlpha)),
+  ].join("");
+
+  const bysig=Object.entries(sb.bySignal||{}).map(([sig,g])=>
+    `<span class="chip"><span class="sigtag ${sig}">${sig}</span> <b>${g.calls}</b> calls · win ${fmt(g.winRate,0)}% · avg ${pct(g.avgReturn)}</span>`
+  ).join("");
+
+  const rows=sb.calls.map(c=>`<tr>
+    <td>${esc(c.date)}</td>
+    <td><b>${esc(c.ticker)}</b></td>
+    <td><span class="sigtag ${esc(c.signal)}">${esc(c.signal)}</span></td>
+    <td class="num-col">${esc(c.conviction)}/10</td>
+    <td class="num-col">${fmt(c.price_at_call)}</td>
+    <td class="num-col" data-cur="${esc(c.ticker)}">${fmt(c.current_price)}</td>
+    <td class="num-col ${cls(c.return_pct)}">${pct(c.return_pct)}</td>
+    <td class="num-col ${cls(c.spy_return_pct)}">${pct(c.spy_return_pct)}</td>
+    <td class="num-col ${cls(c.alpha)}">${pct(c.alpha)}</td>
+    <td>${c.hit==null?'<span class="hit-open">open</span>':c.hit?'<span class="hit-win">✓ WIN</span>':'<span class="hit-loss">✗ LOSS</span>'}</td>
+    <td class="num-col">${esc(c.days_open)}d</td>
+  </tr>`).join("");
+
+  document.getElementById("wrap").innerHTML=`
+    <div class="sb-title">🏆 ACCURACY SCOREBOARD</div>
+    <div class="method">${esc(sb.methodology)}</div>
+    <div class="tiles">${tiles}</div>
+    <div class="bysig">${bysig}</div>
+    <div class="tablewrap"><table class="calls">
+      <thead><tr><th>DATE</th><th>TICKER</th><th>CALL</th><th class="num-col">CONVICTION</th><th class="num-col">PRICE @ CALL</th><th class="num-col">CURRENT</th><th class="num-col">RETURN</th><th class="num-col">SPY SAME PERIOD</th><th class="num-col">ALPHA</th><th>RESULT</th><th class="num-col">AGE</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+    <div class="updated">last scored ${new Date(sb.updatedAt).toLocaleString()} · re-priced automatically with every brief and scoreboard refresh</div>`;
+}
+main();
+</script>
+</body>
+</html>

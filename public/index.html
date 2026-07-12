@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Wahba Markets — AI Trading Desk</title>
+<link rel="stylesheet" href="style.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>📈</text></svg>" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">▲</span>
+    <span class="brand-name">WAHBA&nbsp;MARKETS</span>
+    <span class="brand-sub">AI TRADING DESK · REAL DATA · REAL NEWS</span>
+  </div>
+  <div class="top-right">
+    <a class="btn ghost" href="brief.html" style="text-decoration:none">📰 Brief</a>
+    <a class="btn ghost" href="scoreboard.html" style="text-decoration:none">🏆 Scoreboard</a>
+    <button class="btn ghost" id="sp500Btn">☰ S&amp;P 500</button>
+    <button class="btn ghost" id="compareBtn">⇄ Compare</button>
+    <span class="model-badge" id="modelBadge">claude-opus-4-8</span>
+    <span class="key-pill" id="keyPill"><span class="dot"></span><span id="keyPillText">NO KEY</span></span>
+    <button class="btn ghost" id="settingsBtn">⚙ Settings</button>
+  </div>
+</header>
+
+<div class="settings" id="settingsPanel" hidden>
+  <div class="settings-inner">
+    <label for="apiKeyInput">Anthropic API key (stored in server memory only — or set <code>ANTHROPIC_API_KEY</code> in a <code>.env</code> file)</label>
+    <div class="settings-row">
+      <input id="apiKeyInput" type="password" placeholder="sk-ant-..." autocomplete="off" />
+      <button class="btn" id="saveKeyBtn">Save key</button>
+      <button class="btn ghost" id="testAiBtn">Test AI connection</button>
+      <span id="testAiResult" class="test-result"></span>
+    </div>
+  </div>
+</div>
+
+<div class="toolbar">
+  <div class="ticker-box">
+    <input id="tickerInput" type="text" placeholder="Ticker — e.g. AAPL, NVDA, TSLA…" autocomplete="off" spellcheck="false" />
+    <div id="searchResults" class="search-results" hidden></div>
+  </div>
+  <button class="btn" id="loadBtn">Load market data</button>
+  <button class="btn primary" id="runBtn">▶ Run AI cycle</button>
+  <label class="toggle"><input type="checkbox" id="monitorToggle" /> Live monitor</label>
+  <label class="toggle"><input type="checkbox" id="autoToggle" /> Auto re-run on material news</label>
+  <span class="cycle-status" id="cycleStatus">idle</span>
+</div>
+
+<main class="grid">
+
+  <!-- LEFT: market data + news -->
+  <section class="col col-market">
+    <div class="panel" id="pricePanel">
+      <div class="panel-head">MARKET DATA <span class="live-tag" id="liveTag" hidden>● LIVE</span></div>
+      <div class="panel-body">
+        <div class="price-head">
+          <div>
+            <div class="ticker-big" id="pTicker">—</div>
+            <div class="company" id="pName">Load a ticker to begin</div>
+          </div>
+          <div class="price-right">
+            <div class="price-big" id="pPrice">—</div>
+            <div class="price-chg" id="pChange">—</div>
+          </div>
+        </div>
+        <div class="range-tabs">
+          <button class="range-tab active" data-range="1D">1D · live</button>
+          <button class="range-tab" data-range="1Y">1Y</button>
+          <span class="tick-info" id="tickInfo"></span>
+        </div>
+        <canvas id="chart" width="560" height="140"></canvas>
+        <div class="stats" id="pStats"></div>
+      </div>
+    </div>
+
+    <div class="panel grow">
+      <div class="panel-head">NEWS TAPE <span class="sub">real headlines · yahoo finance feed</span></div>
+      <div class="panel-body news-list" id="newsList">
+        <div class="empty">No headlines yet.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CENTER: agent pipeline -->
+  <section class="col col-pipeline">
+    <div class="pipeline-head">
+      <span>AGENT PIPELINE</span>
+      <span class="sub">manager validates every output · agents prompt each other in sequence</span>
+    </div>
+
+    <div class="agent-card" id="card-researcher" data-agent="researcher">
+      <div class="agent-head">
+        <span class="agent-num">1</span>
+        <span class="agent-name">News &amp; Evidence Researcher</span>
+        <span class="agent-role">web search · real evidence</span>
+        <span class="status idle" id="status-researcher">idle</span>
+      </div>
+      <div class="agent-note" id="note-researcher" hidden></div>
+      <div class="agent-output" id="out-researcher"></div>
+    </div>
+
+    <div class="pipe-arrow">▼ <span>handoff questions →</span></div>
+
+    <div class="agent-card" id="card-analyst" data-agent="analyst">
+      <div class="agent-head">
+        <span class="agent-num">2</span>
+        <span class="agent-name">Equity Analyst</span>
+        <span class="agent-role">the deep dive</span>
+        <span class="status idle" id="status-analyst">idle</span>
+      </div>
+      <div class="agent-note" id="note-analyst" hidden></div>
+      <div class="agent-output" id="out-analyst"></div>
+    </div>
+
+    <div class="pipe-arrow">▼ <span>handoff questions →</span></div>
+
+    <div class="agent-card" id="card-reality" data-agent="reality">
+      <div class="agent-head">
+        <span class="agent-num">3</span>
+        <span class="agent-name">Reality Check</span>
+        <span class="agent-role">vs peers</span>
+        <span class="status idle" id="status-reality">idle</span>
+      </div>
+      <div class="agent-note" id="note-reality" hidden></div>
+      <div class="agent-output" id="out-reality"></div>
+    </div>
+
+    <div class="pipe-arrow">▼ <span>handoff questions →</span></div>
+
+    <div class="agent-card" id="card-devil" data-agent="devil">
+      <div class="agent-head">
+        <span class="agent-num">4</span>
+        <span class="agent-name">Devil's Advocate</span>
+        <span class="agent-role">bear case · invalidation level</span>
+        <span class="status idle" id="status-devil">idle</span>
+      </div>
+      <div class="agent-note" id="note-devil" hidden></div>
+      <div class="agent-output" id="out-devil"></div>
+    </div>
+
+    <div class="pipe-arrow">▼ <span>all reports →</span></div>
+
+    <div class="agent-card manager" id="card-manager" data-agent="manager">
+      <div class="agent-head">
+        <span class="agent-num">M</span>
+        <span class="agent-name">Desk Manager</span>
+        <span class="agent-role">validates all agents · issues the trade card</span>
+        <span class="status idle" id="status-manager">idle</span>
+      </div>
+      <div class="agent-note" id="note-manager" hidden></div>
+      <div class="agent-output" id="out-manager"></div>
+    </div>
+  </section>
+
+  <!-- RIGHT: trade card / AI studio / log -->
+  <section class="col col-right">
+    <div class="right-tabs">
+      <button class="right-tab active" data-tab="verdict">TRADE CARD</button>
+      <button class="right-tab" data-tab="studio">AI STUDIO</button>
+      <button class="right-tab" data-tab="log">DESK LOG</button>
+    </div>
+
+    <div class="panel grow tabpane" id="tab-verdict">
+      <div class="panel-head">TRADE CARD <span class="sub">manager's final verdict</span></div>
+      <div class="panel-body" id="verdictPanel">
+        <div class="empty">Run a cycle to get a verdict.</div>
+      </div>
+    </div>
+
+    <div class="panel grow tabpane" id="tab-studio" hidden>
+      <div class="panel-head">AI STUDIO <span class="sub">chat about any stock · live data context</span></div>
+      <div class="studio-body">
+        <div class="chat-list" id="chatList">
+          <div class="chat-msg ai">Ask me anything about a stock — I'll pull its live price and news into the conversation. Load a ticker (or use the S&amp;P 500 browser) and it becomes my default context.</div>
+        </div>
+        <div class="chat-context" id="chatContext">context: —</div>
+        <div class="chat-input-row">
+          <textarea id="chatInput" rows="2" placeholder="e.g. Is NVDA overextended after today's move? Compare AAPL vs MSFT…"></textarea>
+          <button class="btn primary" id="chatSendBtn">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel grow tabpane" id="tab-log" hidden>
+      <div class="panel-head">DESK LOG</div>
+      <div class="panel-body log-list" id="logList"></div>
+    </div>
+  </section>
+
+</main>
+
+<!-- S&P 500 drawer -->
+<div class="drawer-backdrop" id="spBackdrop" hidden></div>
+<aside class="drawer" id="spDrawer" hidden>
+  <div class="drawer-head">
+    <span>S&amp;P 500 — ALL CONSTITUENTS</span>
+    <button class="btn ghost" id="spCloseBtn">✕</button>
+  </div>
+  <div class="drawer-tools">
+    <input type="text" id="spFilter" placeholder="Filter by ticker or company…" />
+    <select id="spSector"><option value="">All sectors</option></select>
+  </div>
+  <div class="drawer-count" id="spCount"></div>
+  <div class="drawer-list" id="spList"></div>
+</aside>
+
+<!-- Compare modal -->
+<div class="modal-backdrop" id="cmpBackdrop" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <span>COMPARE TWO STOCKS</span>
+      <button class="btn ghost" id="cmpCloseBtn">✕</button>
+    </div>
+    <div class="cmp-inputs">
+      <input type="text" id="cmpA" placeholder="Ticker A — e.g. AAPL" />
+      <span class="vs">VS</span>
+      <input type="text" id="cmpB" placeholder="Ticker B — e.g. MSFT" />
+      <button class="btn primary" id="cmpRunBtn">Compare</button>
+      <button class="btn" id="cmpAiBtn" title="Send the comparison to AI Studio">🤖 Ask AI to compare</button>
+    </div>
+    <div class="cmp-status" id="cmpStatus"></div>
+    <canvas id="cmpChart" width="760" height="180"></canvas>
+    <div class="cmp-legend" id="cmpLegend"></div>
+    <div class="cmp-table" id="cmpTable"></div>
+  </div>
+</div>
+
+<footer class="footer">
+  Educational research tool — AI-generated analysis of real market data. Not financial advice. Markets involve risk; verify everything before trading.
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

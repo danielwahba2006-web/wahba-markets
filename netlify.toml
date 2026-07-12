@@ -1,0 +1,10 @@
+# Wahba Markets — Netlify configuration
+# Static UI is served from /public; the /api/* surface is a serverless function.
+
+[build]
+  publish = "public"
+  command = "echo 'static site — nothing to build'"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"

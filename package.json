@@ -1,0 +1,17 @@
+{
+  "name": "wahba-markets",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI trading desk: 4-agent analysis loop on real stocks, real prices, real news",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/run-tests.js",
+    "brief": "node scripts/run-brief.js",
+    "scoreboard": "node scripts/update-scoreboard.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.0",
+    "express": "^4.21.2"
+  }
+}

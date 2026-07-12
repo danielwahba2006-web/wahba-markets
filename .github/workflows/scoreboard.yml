@@ -1,0 +1,46 @@
+name: Scoreboard Refresh
+
+on:
+  schedule:
+    # 21:15 UTC — after the US close year-round, weekdays only. No API key needed.
+    - cron: "15 21 * * 1-5"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  scoreboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Re-price every call against live market data
+        run: node scripts/update-scoreboard.js
+
+      - name: Commit updated scoreboard
+        run: |
+          git config user.name "wahba-markets-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data public/data public/feed.xml
+          git diff --cached --quiet || git commit -m "Scoreboard refresh $(date -u +%F)"
+          git pull --rebase origin main || true
+          git push
+
+      - name: Deploy to Netlify
+        if: ${{ secrets.NETLIFY_AUTH_TOKEN != '' }}
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: 0eff93b3-13d9-497b-a7cb-c94977b7f64c
+        run: npx --yes netlify-cli deploy --prod --site "$NETLIFY_SITE_ID"

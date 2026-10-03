@@ -418,6 +418,14 @@ async function main() {
     mock.close();
   }
 
+  try {
+    await testClaudeCodeEngine(tmpBase);
+  } catch (err) {
+    failed++;
+    failures.push("CLAUDE CODE SUITE ERROR: " + err.message);
+    console.error("CLAUDE CODE SUITE ERROR:", err);
+  }
+
   console.log(`\n================================`);
   console.log(`RESULT: ${passed} passed, ${failed} failed`);
   if (failures.length) {
@@ -425,6 +433,128 @@ async function main() {
     failures.forEach((f) => console.log("  - " + f));
   }
   process.exit(failed ? 1 : 0);
+}
+
+// ---------------------------------------------------------------------------
+// Claude Code engine (subscription, no API key) — via a protocol-faithful fake CLI
+// ---------------------------------------------------------------------------
+function startServer(port, extraEnv) {
+  const env = { ...process.env, PORT: String(port), ...extraEnv };
+  delete env.ANTHROPIC_API_KEY;
+  delete env.ANTHROPIC_AUTH_TOKEN;
+  delete env.ANTHROPIC_BASE_URL;
+  return spawn(process.execPath, [path.join(__dirname, "..", "server.js")], { env, stdio: ["ignore", "pipe", "pipe"] });
+}
+
+async function waitReady(base) {
+  for (let i = 0; i < 40; i++) {
+    try {
+      const r = await fetch(base + "/api/health?refresh=1");
+      if (r.ok) return (await r.json());
+    } catch {}
+    await sleep(250);
+  }
+  throw new Error("server never became ready at " + base);
+}
+
+async function testClaudeCodeEngine(tmpBase) {
+  console.log("\n== CLAUDE CODE ENGINE (Claude subscription, NO API key) ==");
+  const PORT = 3278;
+  const base = `http://127.0.0.1:${PORT}`;
+  const fake = path.join(__dirname, "fake-claude.js");
+  const log = path.join(tmpBase, "fake-claude.log");
+  const state = path.join(tmpBase, "fake-claude.state");
+  const dataDir = path.join(tmpBase, "cc-data");
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(path.join(dataDir, "config.json"), JSON.stringify({ watchlist: ["AAPL"], briefTime: "23:59", autoBrief: false, autoDeploy: false }));
+
+  const server = startServer(PORT, {
+    WAHBA_CLAUDE_PATH: fake,
+    FAKE_CLAUDE_LOG: log,
+    FAKE_CLAUDE_STATE: state,
+    WAHBA_DATA_DIR: dataDir,
+    WAHBA_PUB_DIR: path.join(tmpBase, "cc-pub"),
+    CLAUDECODE: "1", // simulate launching from inside a Claude Code session
+  });
+  try {
+    const h = await waitReady(base);
+    assert("engine auto-selects claude-code with no API key", h.provider === "claude-code" && h.hasKey === true, JSON.stringify(h));
+    assert("health reports CLI installed + logged in", h.claudeCode && h.claudeCode.installed && h.claudeCode.loggedIn);
+
+    const t = await (await fetch(base + "/api/test-ai", { method: "POST" })).json();
+    assert("test-ai answers through Claude Code", t.ok && t.provider === "claude-code" && t.reply.includes("FAKE"), JSON.stringify(t));
+    const h2 = await (await fetch(base + "/api/health")).json();
+    assert("model label comes from the CLI session", h2.model === "claude-fake-subscription", h2.model);
+
+    const chatRes = await fetch(base + "/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [
+          { role: "user", content: "hi" },
+          { role: "assistant", content: "hello" },
+          { role: "user", content: "thoughts on AAPL?" },
+        ],
+        tickers: ["AAPL"],
+      }),
+    });
+    const chatText = await chatRes.text();
+    assert("AI Studio chat streams via Claude Code (multi-turn)", chatRes.status === 200 && chatText.includes("FAKE CC REPORT"), chatText.slice(0, 80));
+
+    const start = await (await fetch(base + "/api/cycle", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ticker: "AAPL" }) })).json();
+    assert("full desk cycle starts with no API key", start.ok && start.started, JSON.stringify(start));
+    let st = null;
+    for (let i = 0; i < 80; i++) {
+      await sleep(500);
+      st = await (await fetch(base + "/api/state")).json();
+      if (!st.running && st.cycleCount > 0) break;
+    }
+    assert("cycle completes on the subscription engine", st && !st.running && st.cycleCount === 1, JSON.stringify(st && st.agents));
+    assert("all 5 agents reached done", ["researcher", "analyst", "reality", "devil", "manager"].every((k) => st.agents[k] && st.agents[k].status === "done"));
+    const v = st.verdict || {};
+    assert("verdict parsed from fenced JSON text (fallback path)", v.signal === "BUY" && v.conviction === 6 && v.invalidation === "Close below 90", JSON.stringify(v));
+    assert("verdict carries live price", v.price_at_verdict > 0);
+
+    const calls = fs.readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    const researcher = calls.filter((c) => c.tools === "WebSearch,WebFetch");
+    assert("researcher gets WebSearch + WebFetch (auto-allowed)", researcher.length >= 1 && researcher.every((c) => c.allowedTools === "WebSearch,WebFetch"));
+    assert("all other agents run with tools disabled", calls.filter((c) => c.tools !== "WebSearch,WebFetch").every((c) => c.tools === ""));
+    assert("manager rejection + re-prompt works on this engine", Number(fs.readFileSync(state, "utf8")) >= 5);
+    assert("JSON calls pass --json-schema", calls.some((c) => c.hasSchema));
+    assert("API key never reaches the CLI (no billing path)", calls.every((c) => !c.sawApiKey));
+    assert("nested-session env var stripped", calls.every((c) => !c.sawClaudeCodeEnv));
+    assert("agents run in an isolated sandbox folder", calls.every((c) => /wahba-claude-code-sandbox/i.test(c.cwd)), calls[0] && calls[0].cwd);
+    assert("prompts go over stdin (large prompts intact)", calls.some((c) => c.promptChars > 3000));
+  } finally {
+    server.kill();
+  }
+
+  // Direct adapter check: multi-turn output must not be glued together.
+  process.env.WAHBA_CLAUDE_PATH = fake;
+  process.env.FAKE_CLAUDE_MULTI = "1";
+  try {
+    const cc = require("../claude-code");
+    let streamedUi = "";
+    const out = await cc.run({ system: "s", prompt: "p", onDelta: (d) => (streamedUi += d) });
+    assert("multi-turn text separated (headings render)", streamedUi === "Narration.\n\n# Report", JSON.stringify(streamedUi));
+    assert("final report = last turn only", out.text === "# Report", JSON.stringify(out.text));
+  } finally {
+    delete process.env.FAKE_CLAUDE_MULTI;
+  }
+
+  // Logged-out CLI: the app must report offline and refuse cleanly.
+  const PORT2 = 3279 + 100;
+  const base2 = `http://127.0.0.1:${PORT2}`;
+  const server2 = startServer(PORT2, { WAHBA_CLAUDE_PATH: fake, FAKE_CLAUDE_LOGGED_OUT: "1", WAHBA_DATA_DIR: dataDir, WAHBA_PUB_DIR: path.join(tmpBase, "cc-pub") });
+  try {
+    const h = await waitReady(base2);
+    assert("logged-out CLI → AI offline", h.provider === "none" && h.hasKey === false, JSON.stringify(h));
+    const r = await fetch(base2 + "/api/cycle", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ticker: "AAPL" }) });
+    const b = await r.json();
+    assert("cycle refused with login instructions", r.status === 400 && /claude auth login/.test(b.error), b.error);
+  } finally {
+    server2.kill();
+  }
 }
 
 main();

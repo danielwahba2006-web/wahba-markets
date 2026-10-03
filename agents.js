@@ -22,8 +22,27 @@ function getClient() {
   return cachedClient;
 }
 
-function hasKeyConfigured() {
+const claudeCode = require("./claude-code");
+
+// Engine selection. WAHBA_PROVIDER = "anthropic" | "claude-code" | "auto" (default).
+// auto: an API key the user entered wins; otherwise the local Claude Code login
+// (Claude subscription) runs the agents with no key and no per-call billing.
+function hasApiKey() {
   return Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+}
+function provider() {
+  const p = String(process.env.WAHBA_PROVIDER || "auto").toLowerCase();
+  if (p === "anthropic") return hasApiKey() ? "anthropic" : "none";
+  if (p === "claude-code") return claudeCode.isAvailable() ? "claude-code" : "none";
+  if (hasApiKey()) return "anthropic";
+  if (claudeCode.isAvailable()) return "claude-code";
+  return "none";
+}
+function hasKeyConfigured() {
+  return provider() !== "none";
+}
+function modelLabel() {
+  return provider() === "claude-code" ? claudeCode.modelLabel() : MODEL;
 }
 
 // ---------------------------------------------------------------------------
@@ -68,6 +87,16 @@ const CARD_DEVILS_ADVOCATE = (t) =>
 
 // Streaming text agent. Handles pause_turn continuation for server-side web search.
 async function runAgent({ system, prompt, useWebSearch = false, onDelta = () => {}, maxTokens = 8000 }) {
+  if (provider() === "claude-code") {
+    const out = await claudeCode.run({
+      system,
+      prompt,
+      tools: useWebSearch ? ["WebSearch", "WebFetch"] : [],
+      onDelta,
+      timeoutMs: useWebSearch ? 12 * 60 * 1000 : 8 * 60 * 1000,
+    });
+    return { text: out.text, stopReason: out.stopReason };
+  }
   const client = getClient();
   const tools = useWebSearch ? [{ type: "web_search_20260209", name: "web_search", max_uses: 6 }] : undefined;
   let messages = [{ role: "user", content: prompt }];
@@ -99,6 +128,22 @@ async function runAgent({ system, prompt, useWebSearch = false, onDelta = () => 
 
 // Structured (JSON) agent call for validation / verdict / materiality decisions.
 async function runJsonAgent({ system, prompt, schema, maxTokens = 3000, effort = "high" }) {
+  if (provider() === "claude-code") {
+    const jsonPrompt = `${prompt}\n\nRespond with ONLY a JSON object matching this JSON Schema — no prose, no code fences:\n${JSON.stringify(schema)}`;
+    let lastErr = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const out = await claudeCode.run({ system, prompt: jsonPrompt, jsonSchema: schema, timeoutMs: 5 * 60 * 1000 });
+        const obj = out.structured && typeof out.structured === "object" ? out.structured : claudeCode.parseJsonLoose(out.text);
+        const missing = (schema.required || []).filter((k) => !(k in obj));
+        if (missing.length) throw new Error(`JSON missing fields: ${missing.join(", ")}`);
+        return obj;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr;
+  }
   const client = getClient();
   const resp = await client.messages.create({
     model: MODEL,
@@ -316,6 +361,18 @@ Rules:
 - Always remind users of risk when giving directional views, briefly, without being preachy.`;
 
 async function chatStream({ messages, contextBlock, onDelta = () => {}, maxTokens = 4000 }) {
+  if (provider() === "claude-code") {
+    // Headless turns are stateless: replay the conversation as a transcript.
+    const history = messages.slice(0, -1).map((m) => `${m.role === "user" ? "USER" : "ASSISTANT"}: ${m.content}`).join("\n\n");
+    const latest = messages[messages.length - 1].content;
+    const prompt = [
+      history ? `CONVERSATION SO FAR:\n${history}\n` : "",
+      contextBlock || "",
+      `\n---\n\nUSER (reply to this): ${latest}`,
+    ].join("\n");
+    const out = await claudeCode.run({ system: STUDIO_SYSTEM, prompt, onDelta, timeoutMs: 5 * 60 * 1000 });
+    return { text: out.text, stopReason: out.stopReason };
+  }
   const client = getClient();
   const finalMessages = messages.map((m, i) => {
     if (i === messages.length - 1 && m.role === "user" && contextBlock) {
@@ -342,6 +399,9 @@ async function chatStream({ messages, contextBlock, onDelta = () => {}, maxToken
 module.exports = {
   MODEL,
   hasKeyConfigured,
+  provider,
+  modelLabel,
+  claudeCode,
   runAgent,
   chatStream,
   validateOutput,

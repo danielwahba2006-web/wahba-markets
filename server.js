@@ -68,12 +68,15 @@ app.get("/api/events", (req, res) => {
 // ---------------------------------------------------------------------------
 // Config / health
 // ---------------------------------------------------------------------------
-app.get("/api/health", (req, res) => {
+app.get("/api/health", async (req, res) => {
+  if (req.query.refresh) await agentsMod.claudeCode.refreshStatus();
   res.json({
     ok: true,
     platform: "local",
-    model: agentsMod.MODEL,
+    provider: agentsMod.provider(),
+    model: agentsMod.modelLabel(),
     hasKey: agentsMod.hasKeyConfigured(),
+    claudeCode: { installed: Boolean(agentsMod.claudeCode.cliPath()), loggedIn: agentsMod.claudeCode.getStatus().loggedIn },
     running: desk.state.running,
     monitor: desk.state.monitor,
   });
@@ -98,7 +101,7 @@ app.post("/api/test-ai", async (req, res) => {
       prompt: "Status check.",
       maxTokens: 3000,
     });
-    res.json({ ok: true, model: agentsMod.MODEL, reply: out.text.trim().slice(0, 100) });
+    res.json({ ok: true, provider: agentsMod.provider(), model: agentsMod.modelLabel(), reply: out.text.trim().slice(0, 100) });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -158,7 +161,7 @@ app.post("/api/cycle", async (req, res) => {
   if (!ticker) return res.status(400).json({ ok: false, error: "ticker is required" });
   if (desk.state.running) return res.status(409).json({ ok: false, error: `A cycle is already running on ${desk.state.ticker}` });
   if (!agentsMod.hasKeyConfigured())
-    return res.status(400).json({ ok: false, error: "No Anthropic API key configured. Add one in Settings (or set ANTHROPIC_API_KEY)." });
+    return res.status(400).json({ ok: false, error: "AI engine offline. Log in to Claude Code with your Claude subscription (claude auth login --claudeai), or add an API key in Settings." });
 
   // Validate the ticker against real data before burning tokens.
   try {
@@ -179,7 +182,7 @@ app.post("/api/chat", async (req, res) => {
     if (!messages.length || messages[messages.length - 1].role !== "user")
       return res.status(400).json({ ok: false, error: "messages must end with a user message" });
     if (!agentsMod.hasKeyConfigured())
-      return res.status(400).json({ ok: false, error: "No Anthropic API key configured. Add one in Settings." });
+      return res.status(400).json({ ok: false, error: "AI engine offline. Log in to Claude Code with your Claude subscription (claude auth login --claudeai), or add an API key in Settings." });
 
     // Build live context for up to 2 tickers.
     const tickers = (Array.isArray(body.tickers) ? body.tickers : []).slice(0, 2).map((t) => String(t).trim().toUpperCase()).filter(Boolean);
@@ -240,7 +243,7 @@ app.post("/api/brief", (req, res) => {
   if (desk.state.running || briefRunning)
     return res.status(409).json({ ok: false, error: "The desk is busy (a cycle or brief is already running)." });
   if (!agentsMod.hasKeyConfigured())
-    return res.status(400).json({ ok: false, error: "No Anthropic API key configured." });
+    return res.status(400).json({ ok: false, error: "AI engine offline. Log in to Claude Code with your Claude subscription (claude auth login --claudeai), or add an API key in Settings." });
   const cfg = briefMod.loadConfig();
   const tickers = Array.isArray(req.body && req.body.tickers) && req.body.tickers.length ? req.body.tickers : cfg.watchlist;
   runBrief(tickers, "manual").catch((err) => desk.log(`Brief failed: ${err.message}`, "error"));
@@ -295,5 +298,9 @@ app.post("/api/monitor", (req, res) => {
 app.listen(PORT, () => {
   console.log(`Wahba Markets — AI Trading Desk`);
   console.log(`  → http://localhost:${PORT}`);
-  console.log(`  Model: ${agentsMod.MODEL} | API key configured: ${agentsMod.hasKeyConfigured() ? "yes" : "no (set it in the UI)"}`);
+  agentsMod.claudeCode.refreshStatus().then(() => {
+    const p = agentsMod.provider();
+    const how = p === "claude-code" ? "Claude subscription via Claude Code (no API key)" : p === "anthropic" ? "Anthropic API key" : "none — log in with `claude auth login --claudeai` or add an API key";
+    console.log(`  AI engine: ${how}`);
+  });
 });

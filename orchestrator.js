@@ -44,7 +44,7 @@ class Orchestrator extends EventEmitter {
   }
 
   publicState() {
-    return { ...this.state, model: agents.MODEL, hasKey: agents.hasKeyConfigured(), log: this._log.slice(-50) };
+    return { ...this.state, model: agents.modelLabel(), provider: agents.provider(), hasKey: agents.hasKeyConfigured(), log: this._log.slice(-50) };
   }
 
   setAgent(key, status, note = "") {

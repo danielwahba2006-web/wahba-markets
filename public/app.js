@@ -271,10 +271,12 @@ function setCycleStatus(text, running) {
   $("runBtn").disabled = Boolean(running);
 }
 
-function setKeyPill(hasKey) {
+function setKeyPill(hasKey, provider) {
   const pill = $("keyPill");
   pill.classList.toggle("ok", hasKey);
-  $("keyPillText").textContent = hasKey ? "AI ONLINE" : "NO KEY";
+  const label = !hasKey ? "AI OFFLINE" : provider === "claude-code" ? "AI ONLINE · CLAUDE PLAN" : "AI ONLINE";
+  $("keyPillText").textContent = label;
+  pill.title = provider === "claude-code" ? "Agents run on your Claude subscription via Claude Code — no API key" : "";
 }
 
 // ---------------------------------------------------------------------------
@@ -288,7 +290,7 @@ function connectEvents() {
     switch (evt.type) {
       case "state": {
         const st = evt.state;
-        setKeyPill(st.hasKey);
+        setKeyPill(st.hasKey, st.provider);
         $("modelBadge").textContent = st.model;
         if (st.monitor && st.monitor.enabled) {
           $("monitorToggle").checked = true;
@@ -525,7 +527,7 @@ $("saveKeyBtn").addEventListener("click", async () => {
   try {
     await api("/api/key", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ apiKey: key }) });
     $("apiKeyInput").value = "";
-    setKeyPill(true);
+    setKeyPill(true, "anthropic");
     addLog("API key saved.");
   } catch (err) {
     alert("Failed to save key: " + err.message);
@@ -853,11 +855,21 @@ $("cmpAiBtn").addEventListener("click", async () => {
 fetch("/api/health")
   .then((r) => r.json())
   .then((h) => {
-    setKeyPill(h.hasKey);
+    setKeyPill(h.hasKey, h.provider);
     $("modelBadge").textContent = h.model;
     platform = h.platform || "local";
     if (platform === "local") {
       connectEvents();
+      // Keep the engine badge current (e.g. flips online right after `claude auth login`).
+      setInterval(() => {
+        fetch("/api/health?refresh=1")
+          .then((r) => r.json())
+          .then((hh) => {
+            setKeyPill(hh.hasKey, hh.provider);
+            $("modelBadge").textContent = hh.model;
+          })
+          .catch(() => {});
+      }, 20000);
     } else {
       tickMs = 5000; // be gentle with serverless function invocation quotas
       document.querySelectorAll("#runBtn, #monitorToggle, #autoToggle").forEach((el) => (el.disabled = true));

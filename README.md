@@ -52,11 +52,19 @@ node server.js
 # open http://localhost:3178
 ```
 
-Set your Anthropic API key either:
-- in a `.env` file next to `server.js`: `ANTHROPIC_API_KEY=sk-ant-...`
-- or in the UI: **⚙ Settings → paste key → Save** (kept in server memory only)
+### AI engine — no API key needed
 
-Market data and news work with **no key at all** — the key is only needed for the AI agents.
+The agents run on your **Claude subscription** through the Claude Code CLI (headless mode). One-time setup:
+
+```bash
+claude auth login --claudeai
+```
+
+(The Claude desktop app bundles the CLI at `%APPDATA%\Claude\claude-code\<version>\...\claude.exe`; the server finds it automatically, or set `WAHBA_CLAUDE_PATH`.) The header badge shows **AI ONLINE · CLAUDE PLAN** once you're logged in. Usage counts against your plan's limits, not a bill — the CLI is launched with any `ANTHROPIC_API_KEY` stripped from its environment so it can never fall back to API billing, inside an isolated sandbox folder so your files and memories never enter the agents' context. Only the researcher gets tools (WebSearch + WebFetch); every other agent runs tool-free.
+
+Engine selection (`WAHBA_PROVIDER`): `auto` (default — an API key entered in Settings wins, otherwise your Claude login), `claude-code`, or `anthropic`. Optional `WAHBA_CC_MODEL` picks a model (`sonnet`, `opus`, …); by default the CLI uses your plan's default.
+
+Market data and news work with **no AI at all**.
 
 ## Cost note
 
